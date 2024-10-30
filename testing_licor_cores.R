@@ -100,6 +100,7 @@ a %>%
 #We will have to manually explore peak identification performance within our dataset
 
 
+#---isolated examples----
 library(pracma)
 
 # Create a sample time series
