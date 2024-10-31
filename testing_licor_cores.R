@@ -55,6 +55,34 @@ files.sources
 source(files.sources[grep("read_Licor",files.sources)])
 
 
+#Modified function Licor N2o
+read_Licor_n2o <- function(file){
+  message(paste0("reading ",file))
+  data_raw <- read_lines(file)
+  prefix <- substr(data_raw, start = 1,stop = 5) # isolate first 5 characters for each line
+  
+  # find line corresponding to headers
+  headers <- unlist(strsplit(data_raw[which(prefix == "DATAH")], "\t"))
+  units <- unlist(strsplit(data_raw[which(prefix == "DATAU")], "\t"))
+  
+  data <- read.delim(file, sep = "\t", header = F, skip = which(prefix == "DATAU"), na.strings = "nan")
+  names(data) <- headers
+  
+  my_data <- data.frame(date = data$DATE,
+                        UTCtime = data$TIME,
+                        unixtime = data$SECONDS,
+                        H2O = data$H2O,
+                        N2O = data$N2O,
+                        # CO2 = data$CO2,
+                        # CH4 = data$CH4/1000, #ppm
+                        Press = data$CAVITY_P,
+                        label = data$REMARK)
+  
+  return(my_data)
+}
+
+
+
 
 # ---- Directories ----
 dropbox_root <- "C:/Users/Miguel/Dropbox/RESTORE4Cs - Fieldwork/Data" # You have to make sure this is pointing to the write folder on your local machine
@@ -69,11 +97,19 @@ map_incubations<- read.csv(file = paste0(datapath_licor, "/map_incubations.csv")
 # We will eventually need a complete and exclusive list of all cores injection remarks
 #For the moment, use an example (day with only core incubations)
 
-example_file<- paste0(dropbox_root, "/GHG/RAW data/RAW Data Licor-7810/S3-CA/TG10-01275-2024-04-26T060000.data.txt")
+# example_file<- paste0(dropbox_root, "/GHG/RAW data/RAW Data Licor-7810/S3-CA/TG10-01275-2024-04-26T060000.data.txt")
+
+#Example with actual N2O data
+
+example_file<- "C:/Users/Miguel/Dropbox/Licor_N2O/Rawdata/TG20-01377-2024-10-31T080000 (1).data"
+a<- read_Licor_n2o(example_file)
+
+
+
 
 
 #Import using camille's function
-a<- read_Licor(example_file)
+# a<- read_Licor(example_file)
 
 
 a %>% filter(label!="") %>% 
@@ -316,8 +352,8 @@ startend_inj<- a %>%
   filter(label!="") %>% 
   group_by(label) %>%
   summarise(
-    start_inj = first(unixtime)-5,
-    end_inj = last(unixtime)+5,
+    start_inj = first(unixtime),
+    end_inj = last(unixtime),
     .groups = 'drop'  # To ungroup after summarization
   )
 
@@ -341,7 +377,7 @@ for (idinj in startend_inj$label){
   # -----1. Base-correct----
   #Base-correct injection sequence
   dat_bc<-dat %>% 
-    mutate(CH4bc=baseline.corr(CH4,lambda=1e2, p=0.01))
+    mutate(N2Obc=baseline.corr(N2O,lambda=1e2, p=0.01))
     
   
   # -----2. Peak-max detection ----
@@ -352,11 +388,11 @@ for (idinj in startend_inj$label){
           # at leas 5 points between localmaxima
   
   dat_peakid <- dat_bc %>%
-    mutate(is_localmaxch4 = ifelse(row_number() %in% findpeaks(CH4bc, 
-                                                               minpeakheight = quantile(CH4bc, 0.90), 
+    mutate(is_localmaxn2o = ifelse(row_number() %in% findpeaks(N2Obc, 
+                                                               minpeakheight = quantile(N2Obc, 0.90), 
                                                                nups=1, ndowns=1,
                                                                minpeakdistance = 5)[, 2], TRUE, FALSE)) %>%
-    mutate(peak_id = ifelse(is_localmaxch4, paste0(label,"_",cumsum(is_localmaxch4)), NA)) %>%  #Add unique code for local maxima 
+    mutate(peak_id = ifelse(is_localmaxn2o, paste0(label,"_",cumsum(is_localmaxn2o)), NA)) %>%  #Add unique code for local maxima 
     ungroup()
   
   # -----3. Define peak width ----
@@ -384,12 +420,12 @@ for (idinj in startend_inj$label){
   dat_integrated<- dat_peakwindow %>% 
     filter(!is.na(peak_id)) %>% #keep only data of peaks
     group_by(label, peak_id) %>% 
-    summarise(peaksum=sum(CH4bc), peakmax=max(CH4bc), unixtime_ofmax=unixtime[CH4bc==max(CH4bc)]) %>% 
+    summarise(peaksum=sum(N2Obc), peakmax=max(N2Obc), unixtime_ofmax=unixtime[N2Obc==max(N2Obc)]) %>% 
     ungroup()
   
   # -----5. Plot results ----
   #Create a plot for inspection:
-  p<- ggplot(dat_peakwindow, aes(x=unixtime, y=CH4bc))+
+  p<- ggplot(dat_peakwindow, aes(x=unixtime, y=N2Obc))+
     geom_point(aes(col=peak_id))+
     geom_line()+
     geom_point(data = dat_integrated, aes(x=unixtime_ofmax, y=peaksum, col="integral"))
@@ -416,5 +452,9 @@ for (plot_name in names(plots)) {
   print(plots[[plot_name]])
 }
  
+library(stringr)
 
-
+all_peaks %>% 
+  mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml")))) %>% 
+    ggplot( aes(x=vol, y=peaksum, col=label))+
+    geom_point()
