@@ -33,6 +33,8 @@ library(readxl)
 library(lubridate)
 library(ptw)
 library(pracma)
+library(stringr)
+library(ggpmisc)
 # library(zoo)
 # library(ggplot2)
 # library(grid)
@@ -101,13 +103,20 @@ map_incubations<- read.csv(file = paste0(datapath_licor, "/map_incubations.csv")
 
 #Example with actual N2O data
 
-example_file<- "C:/Users/Miguel/Dropbox/Licor_N2O/Rawdata/TG20-01377-2024-10-31T080000 (1).data"
+example_file<- "C:/Users/Miguel/Dropbox/Licor_N2O/Rawdata/TG20-01377-2024-10-31T080000_fullday.data"
 a<- read_Licor_n2o(example_file)
 
+#6ppm_06ml without remark in licor: injected between 10:55 and 10:59. Add label:
+a[between(a$unixtime,
+          a[a$UTCtime=="10:55:00",]$unixtime,
+          a[a$UTCtime=="10:59:00",]$unixtime),]$label<- "6ppm_06ml"
+#cal6ppm_20ml remark without injections, remmove remark
+a[a$label=="cal6ppm_20ml",]$label<- ""
+
+unique(a$label)  
 
 
-
-
+  
 #Import using camille's function
 # a<- read_Licor(example_file)
 
@@ -360,7 +369,7 @@ startend_inj<- a %>%
 
 #There is one injection sequence that has a weird peak at the end and does not correspond to any injection.
 #We will crop this one injection
-startend_inj[startend_inj$label=="S3-CA-A2-C2-TFM",]$end_inj<- 1714123810
+# startend_inj[startend_inj$label=="S3-CA-A2-C2-TFM",]$end_inj<- 1714123810
 
 
 #Object for saving plots
@@ -428,7 +437,8 @@ for (idinj in startend_inj$label){
   p<- ggplot(dat_peakwindow, aes(x=unixtime, y=N2Obc))+
     geom_point(aes(col=peak_id))+
     geom_line()+
-    geom_point(data = dat_integrated, aes(x=unixtime_ofmax, y=peaksum, col="integral"))
+    geom_point(data = dat_integrated, aes(x=unixtime_ofmax, y=peaksum, col="integral"))+
+    ggtitle(idinj)
   
   # Store each plot in the list
   plots[[idinj]] <- p
@@ -452,9 +462,99 @@ for (plot_name in names(plots)) {
   print(plots[[plot_name]])
 }
  
-library(stringr)
 
 all_peaks %>% 
+  filter(grepl("^6ppm",label)) %>% 
+  filter(!peak_id%in%c("6ppm_03ml_1","6ppm_05ml_6")) %>% 
   mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml")))) %>% 
-    ggplot( aes(x=vol, y=peaksum, col=label))+
-    geom_point()
+  filter(vol<40) %>%   
+  ggplot( aes(x=vol, y=peaksum))+
+    geom_point()+
+    geom_smooth(aes(col=vol<11),method = "lm", se=F)
+
+
+peaks_linearity<- 
+  all_peaks %>% 
+  filter(grepl("^6ppm",label)) %>% 
+  filter(!peak_id%in%c("6ppm_03ml_1","6ppm_05ml_6")) %>% 
+  mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml")))/10)
+
+
+peaks_precission<-
+  all_peaks %>% 
+  filter(grepl("^Prec",label)) %>% 
+  mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml"))))
+
+peaks_precission %>% 
+  summarise(avg=mean(peaksum), SD=sd(peaksum), CV=(SD/avg)*100)
+
+
+peaks_linearity %>% 
+  group_by(vol) %>% 
+  summarise(avg=mean(peaksum), SD=sd(peaksum), CV=(SD/avg)*100) %>% 
+  ggplot(aes(x=vol, y=CV))+
+  geom_point()
+
+
+
+  cal_peaks<-all_peaks %>% 
+  filter(grepl("^cal", label)) %>% 
+  separate(label, into = c("conc", "vol"),remove = F, sep = "_") %>% 
+  mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml")))/10) %>%
+  mutate(ppm=case_when(conc=="cal6ppm"~6,
+                       conc=="cal03ppm"~0.3,
+                       conc=="cal1.2ppm"~1.2,
+                       TRUE~NA_real_)) %>% 
+  mutate(mlppm=ppm*vol) %>% 
+    filter(peaksum>5) # REMOVE missidentified peaks from injection cal03ppm_01ml
+  
+  ggplot(cal_peaks,aes(x=mlppm, y=peaksum))+
+    geom_smooth(method = "lm", se=F, col="black")+
+    geom_point(aes(col=conc, shape=vol>1))
+
+  
+  ggplot(subset(cal_peaks, vol<=1),aes(x=mlppm, y=peaksum))+
+    geom_smooth(method = "lm", se=T,col="black")+
+    geom_point(aes(shape=conc, col= "0.1-1ml"))+
+    stat_poly_eq(
+      aes(label = ..eq.label..,), 
+      formula = y~x, 
+      parse = TRUE, 
+      size = 5
+    ) +
+    geom_point(data=subset(cal_peaks, vol>1), aes(x=mlppm, y=peaksum, col=">1ml"))
+  
+  
+  ggplot(subset(cal_peaks, vol<=1),aes(x=mlppm, y=peaksum))+
+    geom_smooth(method = "lm", se=T,col="black")+
+    geom_point(aes(shape=conc, col= "0.1-1ml"))+
+    geom_point(data=subset(cal_peaks, vol>1), aes(x=mlppm, y=peaksum, col=">1ml"))+
+    stat_poly_eq(
+      aes(label = ..eq.label..,), 
+      formula = y~x, 
+      parse = TRUE, 
+      size = 5
+    ) +
+    facet_wrap(.~conc, scales="free")
+    
+  ggplot(cal_peaks,aes(x=vol, y=peaksum,col=conc))+
+    geom_smooth(method = "lm", se=F)+
+    geom_point(aes(col=conc, shape=vol>1))+
+    facet_wrap(.~conc, scales="free")
+    
+  
+  
+
+  peaks_ini<- all_peaks %>% 
+    filter(grepl("^P_05", label)) %>% 
+    filter(peaksum>20)%>% 
+    mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml")))/10) 
+  
+  ggplot(cal6ppm, aes(x=vol, y=peaksum, col="cal"))+
+    geom_point()+
+    geom_point(data=peaks_linearity, aes(x=vol, y=peaksum, col="linearity"))+
+    geom_point(data=peaks_ini, aes(x=vol, y=peaksum, colour = "bottle"))
+    
+  
+  head(cal6ppm)
+head(peaks_linearity)
