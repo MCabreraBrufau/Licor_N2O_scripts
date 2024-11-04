@@ -106,10 +106,11 @@ map_incubations<- read.csv(file = paste0(datapath_licor, "/map_incubations.csv")
 example_file<- "C:/Users/Miguel/Dropbox/Licor_N2O/Rawdata/TG20-01377-2024-10-31T080000_fullday.data"
 a<- read_Licor_n2o(example_file)
 
-#6ppm_06ml without remark in licor: injected between 10:55 and 10:59. Add label:
+#6ppm_06ml without remark in licor: injected between 10:55 and 10:59. Add remark:
 a[between(a$unixtime,
           a[a$UTCtime=="10:55:00",]$unixtime,
           a[a$UTCtime=="10:59:00",]$unixtime),]$label<- "6ppm_06ml"
+
 #cal6ppm_20ml remark without injections, remmove remark
 a[a$label=="cal6ppm_20ml",]$label<- ""
 
