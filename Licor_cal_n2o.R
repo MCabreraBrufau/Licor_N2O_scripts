@@ -113,8 +113,8 @@ startend_inj<- a %>%
 
 
 #Object for saving plots
-plots <- list()
-
+plotspeak <- list()
+plotsbasecor<- list()
 
 for (idinj in startend_inj$label){
   
@@ -126,19 +126,19 @@ for (idinj in startend_inj$label){
   # -----1. Base-correct----
   #Base-correct injection sequence
   dat_bc<-dat %>% 
-    mutate(N2Obc=baseline.corr(N2O,lambda=1e2, p=0.01))
+    mutate(N2Obc=baseline.corr(N2O,lambda=1e5, p=0.0001))
   
-  
+
   # -----2. Peak-max detection ----
   #Find local maxima in sequence and add max_id (label_1,label_2,...) : 
   #Criteria for local maximum:
   # at least 1 increase before and 1 decrease afterwards
-  # minimum peak height to be detected is > percentil 0.9
+  # minimum peak height to be detected is > 1/5 of maximum point in all remark
   # at leas 5 points between localmaxima
   
   dat_peakid <- dat_bc %>%
     mutate(is_localmaxn2o = ifelse(row_number() %in% findpeaks(N2Obc, 
-                                                               minpeakheight = quantile(N2Obc, 0.90), 
+                                                               minpeakheight = max(N2Obc,na.rm = T)/5, 
                                                                nups=1, ndowns=1,
                                                                minpeakdistance = 5)[, 2], TRUE, FALSE)) %>%
     mutate(peak_id = ifelse(is_localmaxn2o, paste0(label,"_",cumsum(is_localmaxn2o)), NA)) %>%  #Add unique code for local maxima 
@@ -150,7 +150,7 @@ for (idinj in startend_inj$label){
   
   dat_peakwindow <- dat_peakid %>%
     mutate(peak_id = map_chr(row_number(), function(idx) {
-      seq_start <- max(1, idx - 4)
+      seq_start <- max(1, idx - 7)
       seq_end <- min(n(), idx + 4)
       
       # Check for peak_id in the surrounding window
@@ -169,25 +169,38 @@ for (idinj in startend_inj$label){
   dat_integrated<- dat_peakwindow %>% 
     filter(!is.na(peak_id)) %>% #keep only data of peaks
     group_by(label, peak_id) %>% 
-    summarise(peaksum=sum(N2Obc), peakmax=max(N2Obc), unixtime_ofmax=unixtime[N2Obc==max(N2Obc)]) %>% 
+    summarise(peaksum=sum(N2Obc), peakmax=max(N2Obc), unixtime_ofmax=unixtime[N2Obc==max(N2Obc)],
+              peaksum_nobasec=sum(N2O)) %>% 
     ungroup()
   
   # -----5. Plot results ----
   #Create a plot for inspection:
   p<- ggplot(dat_peakwindow, aes(x=unixtime, y=N2Obc))+
     geom_point(aes(col=peak_id))+
-    geom_line()+
+    geom_line(aes(col="1_base-correct"))+
     geom_point(data = dat_integrated, aes(x=unixtime_ofmax, y=peaksum, col="integral"))+
+    geom_line(data = dat_peakwindow, aes(x=unixtime, y=N2O, col="0_raw"))+
+    geom_point(data = dat_peakwindow, aes(x=unixtime, y=N2O, col="0_raw"))+
     ggtitle(idinj)
   
   # Store each plot in the list
-  plots[[idinj]] <- p
+  plotspeak[[idinj]] <- p
+
+  bcp<-ggplot(dat_peakwindow, aes(x=unixtime, y=N2Obc-N2O,col=peak_id))+
+    geom_point()+
+    ggtitle(paste(idinj,"residual baseline"))
   
-  #Add results to object all_peaks
+  plotsbasecor[[idinj]]<-bcp
+  
+  
+    
+  #Add results to objects all_peaks and all_data
   if (idinj==startend_inj$label[1]) {
     all_peaks<-dat_integrated 
+    all_data<-dat_peakwindow
   }else{
     all_peaks<-rbind(all_peaks,dat_integrated)
+    all_data<-rbind(all_data,dat_peakwindow)
   }
   
   #Remove intermediate objects in last run of loop
@@ -198,25 +211,50 @@ for (idinj in startend_inj$label){
 
 
 #plot every injection sequence and their integrals: 
-for (plot_name in names(plots)) {
-  print(plots[[plot_name]])
+for (plot_name in names(plotspeak)) {
+  print(plotspeak[[plot_name]])
 }
+
+for (plot_name in names(plotsbasecor)) {
+  print(plotsbasecor[[plot_name]])
+}
+
+
+ggplot(all_data, aes(x=unixtime, y=N2Obc-N2O))+
+  geom_boxplot()
+
+ggplot(all_peaks, aes(x=peaksum, y=peaksum_nobasec))+
+  geom_smooth(formula = y~x,method = "lm", se=T,col="black")+
+  geom_point()+
+  stat_poly_eq(
+    aes(label = ..eq.label..,), 
+    formula = y~x, 
+    parse = TRUE, 
+    size = 5
+  ) 
+
+
+#baseline correction works well for volumes less than 1ml, when more than that is injected, the peak tail spreads too long, and its difficult to discriminate
+
+#Volumes injected should be between 0.2 and 1ml. higher volumes cause problems of diffusion and impact the baseline. The method is sensitive enough to produce accurate results CV of 2.5% with 0.5ml of ambient concentrations. 
+
 
 
 all_peaks %>% 
   filter(grepl("^6ppm",label)) %>% 
-  filter(!peak_id%in%c("6ppm_03ml_1","6ppm_05ml_6")) %>% 
+  # filter(!peak_id%in%c("6ppm_03ml_1","6ppm_05ml_6")) %>% 
   mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml")))/10) %>% 
-  filter(vol<=1) %>%   
+  filter(vol<=4) %>%   
   ggplot( aes(x=vol, y=peaksum))+
   geom_point()+
-  geom_smooth(aes(col=vol<11),method = "lm", se=F)
+  geom_smooth(aes(col=vol<=1),method = "lm", se=F)+
+  geom_smooth(aes(col="all"),method = "lm", se=F)
 
 
 peaks_linearity<- 
   all_peaks %>% 
   filter(grepl("^6ppm",label)) %>% 
-  filter(!peak_id%in%c("6ppm_03ml_1","6ppm_05ml_6")) %>% 
+  # filter(!peak_id%in%c("6ppm_03ml_1","6ppm_05ml_6")) %>% 
   mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml")))/10)
 
 
@@ -229,15 +267,20 @@ peaks_precission %>%
   summarise(avg=mean(peaksum), SD=sd(peaksum), CV=(SD/avg)*100)
 
 
-peaks_linearity %>% 
-  group_by(vol) %>% 
+
+all_peaks %>% 
+  mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml")))/10) %>% 
+  filter(peak_id!="cal1.2ppm_01ml_1")%>% 
+  group_by(label,vol) %>% 
   summarise(avg=mean(peaksum), SD=sd(peaksum), CV=(SD/avg)*100) %>% 
-  filter(vol<2) %>% 
+  filter(vol<5) %>% 
   ggplot(aes(x=vol, y=CV))+
-  geom_point()
+  geom_point()+
+  geom_label(aes(label = label))
 
+#Coeficient of variation is aproximately 2.5% sligthly higher for volumes <0.2ml. Even for ambient concentrations (see aire_0.5ml results)
 
-
+# I would keep is it worth it to perform baseline correction? no apparent differences for 
 cal_peaks<-all_peaks %>% 
   filter(grepl("^cal", label)) %>% 
   separate(label, into = c("conc", "vol"),remove = F, sep = "_") %>% 
@@ -246,18 +289,7 @@ cal_peaks<-all_peaks %>%
                        conc=="cal03ppm"~0.3,
                        conc=="cal1.2ppm"~1.2,
                        TRUE~NA_real_)) %>% 
-  mutate(mlppm=ppm*vol) %>% 
-  filter(peaksum>5) # REMOVE missidentified peaks from injection cal03ppm_01ml
-
-ggplot(cal_peaks,aes(x=mlppm, y=peaksum))+
-  geom_smooth(method = "lm", se=F, col="black")+
-  geom_point(aes(col=conc, shape=vol>1))+
-  stat_poly_eq(
-    aes(label = ..eq.label..,), 
-    formula = y~x, 
-    parse = TRUE, 
-    size = 5
-  )
+  mutate(mlppm=ppm*vol)  # REMOVE missidentified peaks from injection cal03ppm_01ml
 
 
 ggplot(subset(cal_peaks, vol<=1),aes(x=mlppm, y=peaksum))+
@@ -272,8 +304,48 @@ ggplot(subset(cal_peaks, vol<=1),aes(x=mlppm, y=peaksum))+
   geom_point(data=subset(cal_peaks, vol>1), aes(x=mlppm, y=peaksum, col=">1ml"))
 
 
-ggplot(subset(cal_peaks, vol<=1),aes(x=mlppm, y=peaksum))+
-  geom_smooth(method = "lm", se=T,col="black")+
+# Compare weighted vs unweighted linear fits for calibration data with volumes of 0.1-1ml 
+cal_data<- subset(cal_peaks, vol<=1) %>% filter(peak_id!="cal1.2ppm_01ml_1")
+
+ggplot(cal_data,aes(x=mlppm, y=peaksum))+
+  geom_smooth(formula = y~x,method = "lm", se=T, aes(weight = 1/mlppm,col="weighted"))+
+  geom_smooth(formula = y~x,method = "lm", se=T, aes(col="unweighted"))+
+  geom_point(aes(shape=conc))+
+  stat_poly_eq(
+    aes(label = ..eq.label..), 
+    formula = y~x, 
+    parse = TRUE, 
+    size = 5
+  )
+
+#weighted model
+# Fit weighted linear regression model
+weighted_model <- lm(cal_data$peaksum ~ cal_data$mlppm, weights = 1/cal_data$mlppm)
+# Fit unweighted linear regression model
+unweighted_model <- lm(cal_data$peaksum ~ cal_data$mlppm)
+
+# Summary of the weighted model
+summary(weighted_model)
+
+
+# Summary of the unweighted model
+summary(unweighted_model)
+
+
+anova(weighted_model,unweighted_model)
+
+
+plot(unweighted_model)
+
+plot(weighted_model)
+
+
+
+
+
+
+ggplot(cal_data,aes(x=mlppm, y=peaksum))+
+  geom_smooth(method = "lm", se=T,col="black",formula = y~x)+
   geom_point(aes(shape=conc, col= "0.1-1ml"))+
   geom_point(data=subset(cal_peaks, vol>1), aes(x=mlppm, y=peaksum, col=">1ml"))+
   stat_poly_eq(
@@ -284,6 +356,8 @@ ggplot(subset(cal_peaks, vol<=1),aes(x=mlppm, y=peaksum))+
   ) +
   geom_abline(intercept = 0, slope = 200, col="green")+
   facet_wrap(.~conc, scales="free")
+
+
 
 ggplot(cal_peaks,aes(x=vol, y=peaksum,col=conc))+
   geom_smooth(method = "lm", se=F)+
