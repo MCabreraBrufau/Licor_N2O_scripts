@@ -1,4 +1,4 @@
-##Licor N2O peak process##
+##Licor N2O peak process calibration##
 
 
 # ---
@@ -21,7 +21,7 @@
       # 6. Integrate peaks
       # 7. Plot results (original signal, base-corrected, peaks detected, windows of peaks & integrated peaks)
   # 8. Decide on linear range of injection volumes    
-  # 9. Calculate calibration factor and quality indeces
+  # 9. Calculate calibration factor and quality indexes
 
 
 # ---- packages & functions ----
@@ -66,11 +66,7 @@ read_Licor_n2o <- function(file){
 dropbox_root <- "C:/Users/Miguel/Dropbox" # You have to make sure this is pointing to the write folder on your local machine
 
 #Rawdata
-datapath_licor <- paste0(dropbox_root,"/Licor_N2O/Rawdata")
-
-#Plots
-plotfolder <- paste0(dropbox_root, "/Licor_N2O/Plots")
-
+datapath_licor <- paste0(dropbox_root,"/Licor_N2O/Calibration")
 
 
 # ---- 1.Import ----
@@ -107,14 +103,8 @@ startend_inj<- a %>%
   )
 
 
-
-
-
-
-
 #Object for saving plots
 plotspeak <- list()
-plotsbasecor<- list()
 
 for (idinj in startend_inj$label){
   
@@ -124,7 +114,7 @@ for (idinj in startend_inj$label){
   
   dat<- a[between(a$unixtime, startinj,endinj),]  
   # -----1. Base-correct----
-  #Base-correct injection sequence
+  #Base-correct injection sequence, using asymetric least-square. 
   dat_bc<-dat %>% 
     mutate(N2Obc=baseline.corr(N2O,lambda=1e5, p=0.0001))
   
@@ -146,7 +136,7 @@ for (idinj in startend_inj$label){
   
   # -----3. Define peak width ----
   #Identify peakwindow: 
-  #Consider peakwindow as max height + 4 leading and 4 trailing points. (i.e. peak width == 9points), 
+  #Consider peakwindow as max height + 4 leading and 7 trailing points. (i.e. peak width == 9points), 
   
   dat_peakwindow <- dat_peakid %>%
     mutate(peak_id = map_chr(row_number(), function(idx) {
@@ -186,14 +176,6 @@ for (idinj in startend_inj$label){
   # Store each plot in the list
   plotspeak[[idinj]] <- p
 
-  bcp<-ggplot(dat_peakwindow, aes(x=unixtime, y=N2Obc-N2O,col=peak_id))+
-    geom_point()+
-    ggtitle(paste(idinj,"residual baseline"))
-  
-  plotsbasecor[[idinj]]<-bcp
-  
-  
-    
   #Add results to objects all_peaks and all_data
   if (idinj==startend_inj$label[1]) {
     all_peaks<-dat_integrated 
@@ -205,23 +187,258 @@ for (idinj in startend_inj$label){
   
   #Remove intermediate objects in last run of loop
   if (idinj==startend_inj$label[length(startend_inj$label)]){
-    rm(startinj,endinj,dat,dat_bc,dat_integrated,dat_peakid,dat_peakwindow)
+    rm(startinj,endinj,dat,dat_bc,dat_integrated,dat_peakid,dat_peakwindow,p,idinj)
   }
 }
 
 
+
+
 #plot every injection sequence and their integrals: 
+pdf(file = paste0(datapath_licor,"/plots_integration.pdf"))  # Open PDF device
+
+# Loop through the list of plots and print each plot
 for (plot_name in names(plotspeak)) {
   print(plotspeak[[plot_name]])
 }
 
-for (plot_name in names(plotsbasecor)) {
-  print(plotsbasecor[[plot_name]])
-}
+dev.off()  # Close the PDF device
 
 
-ggplot(all_data, aes(x=unixtime, y=N2Obc-N2O))+
+
+#Subset injections with properly diluted concentrations to be used for calibration (they start with "cal")
+cal_peaks<-all_peaks %>% 
+  filter(grepl("^cal", label)) %>% 
+  separate(label, into = c("conc", "vol"),remove = F, sep = "_") %>% 
+  mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml")))/10) %>%
+  mutate(ppm=case_when(conc=="cal6ppm"~6,
+                       conc=="cal03ppm"~0.3,
+                       conc=="cal1.2ppm"~1.2,
+                       TRUE~NA_real_)) %>% 
+  mutate(mlppm=ppm*vol)
+
+
+#Examine effect of injected volume on linearity
+
+#All 3 dilutions together
+ggplot(subset(cal_peaks, vol<=1),aes(x=mlppm, y=peaksum))+
+  geom_smooth(formula = y~x,method = "lm", se=T,col="black")+
+  geom_point(aes(shape=conc, col= "0.1-1ml"))+
+  stat_poly_eq(
+    aes(label = ..eq.label..,), 
+    formula = y~x, 
+    parse = TRUE, 
+    size = 5
+  ) +
+  geom_point(data=subset(cal_peaks, vol>1), aes(x=mlppm, y=peaksum, col=">1ml"))
+
+#Per concentration sequence
+ggplot(subset(cal_peaks, vol<=1),aes(x=vol, y=peaksum))+
+  geom_smooth(method = "lm", se=T,col="black",formula = y~x)+
+  geom_point(aes(shape=conc, col= "0.1-1ml"))+
+  geom_point(data=subset(cal_peaks, vol>1), aes(x=vol, y=peaksum, col=">1ml"))+
+  facet_wrap(.~conc, scales="free")
+  
+
+#Linear range for injection volumes of 01-1ml (higher volumes cause underestimation of peaks due to diffussion, probably too wide peaks for integration window, baseline takes too long to recover).
+
+#DECISSION: use 1ml injections for all samples (unless saturation is detected (very unlikely), in those cases reduce volume of injection)
+
+
+#CALIBRATION FACTOR #----
+cal_peaks %>% 
+  filter(vol<=1) %>% #Remove peaks with more than 1ml injection
+  filter(peak_id!="cal1.2ppm_01ml_1") %>% #Remove 1 outlier from cal1.2ppm injection sequence
+ggplot(aes(x=mlppm, y=peaksum))+
+  geom_smooth(formula = y~x,method = "lm", se=T, aes(weight = 1/mlppm,col="weighted"))+
+  geom_smooth(formula = y~x,method = "lm", se=T, aes(col="unweighted"))+
+  geom_point(aes(shape=conc))
+
+#There is no apparent difference between performing a weighted vs unweighted calibration 
+
+#DECISSION: use unweighted linear regression for calibration curve. We will use all data from the 3 dilutions (0.3ppm, 1.2ppm and 6ppm) to obtain a single calibration curve (even if there are small differences between their slopes and intercepts)
+
+calibration_data<- cal_peaks %>% 
+  filter(vol<=1) %>% #Remove peaks with more than 1ml injection
+  filter(peak_id!="cal1.2ppm_01ml_1")#Remove 1 outlier from cal1.2ppm injection sequence
+
+
+cal_model<-  lm(data=calibration_data, formula= peaksum~mlppm)
+
+summary(cal_model)
+
+#mlppm= (1/203.05)*(peaksum-5.8236)
+
+#ppm = ((1/203.05)*(peaksum-5.8236))/ml
+
+
+pdf(file=paste0(datapath_licor,"/calibration curve.pdf"))
+
+ggplot(calibration_data, aes(x=mlppm, y=peaksum))+
+  geom_smooth(method = "lm", formula= y~x, col="black")+
+  geom_point(aes(col=conc))+
+  scale_x_continuous(name="ml*ppm N2O", breaks = seq(0,6,by=1))+
+  scale_y_continuous(name="Peak-area")+
+  labs(col="Dilution")+
+  stat_poly_eq(
+    aes(label = paste(..eq.label.., ..rr.label.., sep="~~~~")),
+    formula = y~x, 
+    parse = TRUE, 
+    size = 5,coef.digits = 4,rr.digits = 4
+  )+
+  theme_bw()
+
+dev.off()
+
+
+#PRECISSION##-----
+#Generally good precission for calibration data (n=5 for most) with more than 0.1ml: CV < 4%
+calibration_data %>% 
+  group_by(label,vol) %>% 
+  summarise(avg=mean(peaksum), SD=sd(peaksum), CV=(SD/avg)*100,nobs=n()) %>% 
+  filter(vol<5) %>% 
+  ggplot(aes(x=vol, y=CV))+
+  geom_point()+
+  geom_label(aes(label = paste(label,", n=",nobs)))
+
+
+#Good precission for 15 injections of 0.5ml 6ppm N2O: CV < 2%
+all_peaks %>% 
+  filter(grepl("^Prec",label)) %>% 
+  mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml")))/10) %>% 
+  group_by(label,vol) %>% 
+  summarise(avg=mean(peaksum), SD=sd(peaksum), CV=(SD/avg)*100, nobs=n())
+
+
+
+
+#SENSITIVITY####
+
+#Injecting ambient lab air produces a very clear signal, even with just 0.5ml (half of what we plan to inject)
+
+plotspeak[["aire_05ml"]]
+
+#With our current calibration this sample has a N2O concentration of: 0.318 +- 0.01 ppm N2O
+
+all_peaks %>% 
+  filter(label=="aire_05ml") %>% 
+  mutate(N2Oppm=((1/203.05)*(peaksum-5.8236))/0.5) %>% 
+  summarise(mean(N2Oppm), sd(N2Oppm), cv=sd(N2Oppm)/mean(N2Oppm))
+
+
+
+#Limit of detection: based on the quality of the calibration curve. 
+#The general approach is LOD = 3 times residual standard error / slope
+
+# Extract the slope, intercept, and their standard errors
+intercept <- coef(cal_model)[1]
+slope <- coef(cal_model)[2]
+se_intercept <- summary(cal_model)$coefficients[1, 2]  # Standard error of the intercept
+se_slope <- summary(cal_model)$coefficients[2, 2]  # Standard error of the slope
+rse <- summary(cal_model)$sigma  # Residual standard error
+
+# Calculate LOD using both intercept and slope
+LOD <- (3 * sqrt(se_intercept^2 + se_slope^2 + rse^2)) / abs(slope)
+
+# Print the LOD: 0.1137
+print(LOD)
+
+
+
+#Calibration parameters of different calibration dilutions: 
+#6ppm N2O dilution:
+#intercept: 16.2
+#slope: 201
+#LOD: 0.1562984 mlppm
+
+
+#1.2ppm N2O dilution:
+#intercept: 4.8
+#slope: 197
+#LOD: 0.06210055  mlppm
+
+
+#0.3ppm N2O dilution: 
+#intercept: 2.5
+#slope: 232
+#LOD: 0.03922452  mlppm
+
+
+#Signal-to-noise ratio based on signal noise: the SD of base-corrected signal when there is no peak
+
+noise_baseline<- all_data %>% 
+  filter(label!="") %>% 
+  filter(is.na(peak_id)) %>% 
+  group_by(label) %>% 
+  summarise(noise_sd=sd(N2Obc))
+
+signaltonoise<- all_peaks %>% 
+  merge.data.frame(noise_baseline, by = "label") %>% 
+  mutate(SNR=peaksum/noise_sd)
+
+#Gennerally, signal-to-noise ratio is >>100  
+summary(signaltonoise$SNR)
+
+
+#Signal-to-noise ratio for near-ambient injections (aire & 0.3ppm dilution): SNR >100, >300 for ambient air
+signaltonoise %>% 
+  filter(grepl("^cal03|aire", label)) %>% 
+  ggplot(aes(x=label, y=SNR))+
   geom_boxplot()
+
+
+
+
+#Observed vs expected 
+
+cal_peaks %>% 
+  # filter(grepl("^cal",label)) %>% 
+  # mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml")))/10) %>% 
+  mutate(N2Oppm=((1/203.05)*(peaksum-5.8236))/vol) %>% 
+  filter(vol<=1) %>% 
+  ggplot( aes(x=vol, y=N2Oppm, col=factor(ppm)))+
+  geom_point()+
+  geom_abline(intercept=c(0.3,1.2,6), slope=0)+
+  scale_x_continuous(name = "Volume of injection (ml)", breaks = seq(0,1,by=0.1))+
+  scale_y_continuous(name = "Measured concentration (ppm N2O)", breaks = c(0,0.3,1.2,6))
+
+
+cal_peaks %>% 
+  # filter(grepl("^cal",label)) %>% 
+  # mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml")))/10) %>% 
+  mutate(N2Oppm=((1/203.05)*(peaksum-5.8236))/vol) %>% 
+  filter(vol<=1) %>% 
+  ggplot( aes(x=ppm, y=N2Oppm, col=factor(ppm)))+
+  geom_point()+
+  geom_abline(intercept=0, slope=1)+
+  scale_y_continuous(name = "Measured concentration (ppm N2O)", breaks = c(0,0.3,1.2,6))+
+  scale_x_continuous(name = "Expected concentration (ppm N2O)", breaks = c(0,0.3,1.2,6))
+
+
+
+calibration_data %>% 
+  # filter(grepl("^cal",label)) %>% 
+  # mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml")))/10) %>% 
+  mutate(N2Oppm=((1/203.05)*(peaksum-5.8236))/vol) %>% 
+  filter(vol<=1) %>% 
+  ggplot( aes(x=vol, y=N2Oppm/ppm, col=factor(ppm)))+
+  geom_boxplot(aes(group = paste(vol, ppm)))+
+  geom_abline(intercept=c(1), slope=0)+
+  scale_x_continuous(name = "Volume of injection (ml)", breaks = seq(0,1,by=0.1))+
+  scale_y_continuous(name = "Measured/expected (ppm:ppm N2O)", breaks = seq(0.9,1.1,by=0.05))
+
+
+
+
+
+
+
+#___________________####
+
+#Miscelanea####
+
+
+#Baseline correction does not perform well when air supply is running short (for these two injections air flow from bottle dropped a bit)
 
 ggplot(all_peaks, aes(x=peaksum, y=peaksum_nobasec))+
   geom_smooth(formula = y~x,method = "lm", se=T,col="black")+
@@ -234,7 +451,7 @@ ggplot(all_peaks, aes(x=peaksum, y=peaksum_nobasec))+
   ) 
 
 
-#baseline correction works well for volumes less than 1ml, when more than that is injected, the peak tail spreads too long, and its difficult to discriminate
+#baseline correction works well for volumes less than 1ml, when more than that is injected, the peak tail spreads too long, and its difficult to discriminate for baseline and peak-window
 
 #Volumes injected should be between 0.2 and 1ml. higher volumes cause problems of diffusion and impact the baseline. The method is sensitive enough to produce accurate results CV of 2.5% with 0.5ml of ambient concentrations. 
 
@@ -258,25 +475,22 @@ peaks_linearity<-
   mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml")))/10)
 
 
-peaks_precission<-
-  all_peaks %>% 
-  filter(grepl("^Prec",label)) %>% 
-  mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml"))))
 
-peaks_precission %>% 
-  summarise(avg=mean(peaksum), SD=sd(peaksum), CV=(SD/avg)*100)
 
 
 
 all_peaks %>% 
   mutate(vol=as.numeric(gsub("ml","",str_extract(label, "[0-9]{2}ml")))/10) %>% 
   filter(peak_id!="cal1.2ppm_01ml_1")%>% 
+  filter(grepl("^cal", label)) %>% 
   group_by(label,vol) %>% 
   summarise(avg=mean(peaksum), SD=sd(peaksum), CV=(SD/avg)*100) %>% 
   filter(vol<5) %>% 
   ggplot(aes(x=vol, y=CV))+
   geom_point()+
   geom_label(aes(label = label))
+
+
 
 #Coeficient of variation is aproximately 2.5% sligthly higher for volumes <0.2ml. Even for ambient concentrations (see aire_0.5ml results)
 
@@ -289,7 +503,7 @@ cal_peaks<-all_peaks %>%
                        conc=="cal03ppm"~0.3,
                        conc=="cal1.2ppm"~1.2,
                        TRUE~NA_real_)) %>% 
-  mutate(mlppm=ppm*vol)  # REMOVE missidentified peaks from injection cal03ppm_01ml
+  mutate(mlppm=ppm*vol)
 
 
 ggplot(subset(cal_peaks, vol<=1),aes(x=mlppm, y=peaksum))+
@@ -344,17 +558,17 @@ plot(weighted_model)
 
 
 
-ggplot(cal_data,aes(x=mlppm, y=peaksum))+
+ggplot(cal_data,aes(x=vol, y=peaksum))+
   geom_smooth(method = "lm", se=T,col="black",formula = y~x)+
   geom_point(aes(shape=conc, col= "0.1-1ml"))+
-  geom_point(data=subset(cal_peaks, vol>1), aes(x=mlppm, y=peaksum, col=">1ml"))+
+  geom_point(data=subset(cal_peaks, vol>1), aes(x=vol, y=peaksum, col=">1ml"))+
   stat_poly_eq(
     aes(label = ..eq.label..,), 
     formula = y~x, 
     parse = TRUE, 
     size = 5
   ) +
-  geom_abline(intercept = 0, slope = 200, col="green")+
+  geom_abline(intercept = 5.82, slope = 203, col="green")+
   facet_wrap(.~conc, scales="free")
 
 
