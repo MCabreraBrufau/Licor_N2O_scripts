@@ -24,39 +24,11 @@ folder_mapinjections<- paste0(dropbox_root,"/Licor_N2O/Map_injections") #Where c
 
 # ---- packages & functions ----
 library(tidyverse)
-library(readxl)
-library(lubridate)
-library(ptw)
-library(pracma)
-library(stringr)
-library(ggpmisc)
 
-
-#Modified function Licor N2o
-read_Licor_n2o <- function(file){
-  message(paste0("reading ",file))
-  data_raw <- read_lines(file)
-  prefix <- substr(data_raw, start = 1,stop = 5) # isolate first 5 characters for each line
-  
-  # find line corresponding to headers
-  headers <- unlist(strsplit(data_raw[which(prefix == "DATAH")], "\t"))
-  units <- unlist(strsplit(data_raw[which(prefix == "DATAU")], "\t"))
-  
-  data <- read.delim(file, sep = "\t", header = F, skip = which(prefix == "DATAU"), na.strings = "nan")
-  names(data) <- headers
-  
-  my_data <- data.frame(date = data$DATE,
-                        UTCtime = data$TIME,
-                        unixtime = data$SECONDS,
-                        H2O = data$H2O,
-                        N2O = data$N2O,
-                        # CO2 = data$CO2,
-                        # CH4 = data$CH4/1000, #ppm
-                        Press = data$CAVITY_P,
-                        label = data$REMARK)
-  
-  return(my_data)
-}
+#Import functions of repo 
+repo_root <- dirname(dirname(rstudioapi::getSourceEditorContext()$path))
+files.sources = list.files(path = paste0(repo_root,"/functions"), full.names = T)
+for (f in files.sources){source(f)}
 
 
 #Check rawdata files and map_injection files
@@ -64,14 +36,19 @@ read_Licor_n2o <- function(file){
 #raw_files are named as: paste("TG20-01377-", year-month-day, "-T",hourstartexport, ".data")
 #maps_done will be named as raw_map_injection_rawfile.csv, the rawfile part will not end in .data
 
+#List maps that are already created in folder_mapinjections
 maps_done<- list.files(path=folder_mapinjections, pattern = "^raw_map_injection")
+
+#List raw files present in folder_raw
 raw_files<- list.files(path = folder_raw, pattern =  "^TG20-01377")
 
-#Get a vector with the rawfiles that do not have a matching map
+
+#Get raw files without corresponding map injection
 raw_files_withoutmap<- raw_files[!gsub(".data", "",raw_files)%in%gsub(".csv", "", gsub(pattern = "raw_map_injection_","",maps_done))]
 
+
 #Collect Tstart Tend and labels for all unique remarks of every raw_file_withoutmap
-#Save these details in csv files named "raw_map_injection_"[rawfilename].csv
+#Save these details in csv files named "raw_map_injection_"[rawfilename without".data"].csv 
 for (i in raw_files_withoutmap){
   
   a<- read_Licor_n2o(paste0(folder_raw,"/",i))%>% 

@@ -12,9 +12,10 @@
 
 #Implementar collección de linea base: "lab_baseline" y "loop_baseline" en protocolo de lab, extraer para cada dia estos datos, guardar valores medios, desviacion, nobs. 
 
-#Implementar en el protocolo dos inyecciones de estandar interno: 6ppm_1ml y lab_1ml. Para calidad, podremos utilizar 6ppm_1ml como drift, y lab_1ml vs lab_baseline como estandar interno. 2 puntos de calibracion diarios 6ppm y aire ambiental (autocalibracion)
+#Implementar en el protocolo dos inyecciones de estandar interno: 6ppm-[1,2,3,..]_1ml y aire-[1,2,3,..]_1ml. Para calidad, podremos utilizar 6ppm_1ml como drift, y lab_1ml vs lab_baseline como estandar interno. 2 puntos de calibracion diarios 6ppm y aire ambiental (autocalibracion)
 
-#crear un script separado para obtener map_injections (label, start, stop) para cada rawfile, hacerlo editable, luego importar desde este script los datos con los label corregidos/eliminados/anadidos
+#crear un script separado para obtener map_injections (label, start, stop) para cada rawfile #HECHO#, hacerlo editable, luego importar desde este script los datos con los label corregidos/eliminados/anadidos
+
 
 #crear loop para cada rawfile, comprobando primero si los datos estan extraidos ya (no ejecutar para todos los rawfile, sino solo para los que no tengan ya los datos extraidos, en base a un metadata_file ) 
 
@@ -32,7 +33,7 @@ dropbox_root <- "C:/Users/Miguel/Dropbox" # You have to make sure this is pointi
 #Data folders
 folder_raw <- paste0(dropbox_root,"/Licor_N2O/Rawdata") #contains unedited files downloaded from licor
 
-folder_injections<- paste0(dropbox_root,"/Licor_N2O/Injection sequences") #Contains csvs with startstop times of injections and their corresponding labels, corrections should be made manually when needed (editting the csvs and re-saving with "_correct" sufix)
+folder_injections<- paste0(dropbox_root,"/Licor_N2O/Map_injections") #Contains csvs with startstop times of injections and their corresponding labels, corrections should be made manually when needed (editting the csvs and re-saving with "corrected_" prefix)
 
 folder_plots<-  paste0(dropbox_root,"/Licor_N2O/Integration plots") #One pdf per dayofinjections (auto-name from rawfile name), plots of each injection sequence (baseline correction & integration)
 
