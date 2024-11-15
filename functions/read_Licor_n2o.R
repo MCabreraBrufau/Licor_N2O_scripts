@@ -1,7 +1,7 @@
 #Function that reads Li-COR N2O data (Modified from Camille's function read_Licor developed for CO2/CH4 Licor)
 
 read_Licor_n2o <- function(file){
-  message(paste0("reading ",file))
+  message(paste0("Reading ",file))
   data_raw <- read_lines(file)
   prefix <- substr(data_raw, start = 1,stop = 5) # isolate first 5 characters for each line
   
@@ -17,7 +17,6 @@ read_Licor_n2o <- function(file){
                         unixtime = data$SECONDS,
                         # H2O = data$H2O,
                         n2o = data$N2O,
-                        diag = data$diag,
                         # CO2 = data$CO2,
                         # CH4 = data$CH4/1000, #ppm
                         Press = data$CAVITY_P,
