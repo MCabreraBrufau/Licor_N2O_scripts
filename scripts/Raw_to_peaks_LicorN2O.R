@@ -1,4 +1,4 @@
-#Injection peaks to ppm#
+#Raw to integrated peaks and baselines#
 
 # ---
 # Authors: Miguel Cabrera
@@ -10,19 +10,17 @@
 
 #Cosas para hacer: 
 
-#Implementar collección de linea base: "lab_baseline" y "loop_baseline"  extraer para cada dia estos datos, guardar valores medios, desviacion, nobs. 
+#Implementar collección de linea base: "lab_baseline" y "loop_baseline"  extraer para cada dia estos datos, guardar valores medios, desviacion, nobs. HECHO
 
-#Implementar en el protocolo dos inyecciones de estandar interno: 6ppm-[1,2,3,..]_1ml y aire-[1,2,3,..]_1ml. Para calidad, podremos utilizar 6ppm_1ml como drift, y lab_1ml vs lab_baseline como estandar interno. 2 puntos de calibracion diarios 6ppm y aire ambiental (autocalibracion)
+#Implementar en el protocolo dos inyecciones de estandar interno: 6ppm-[1,2,3,..]_1ml y aire-[1,2,3,..]_1ml. Para calidad, podremos utilizar 6ppm_1ml como drift, y lab_1ml vs lab_baseline como estandar interno. 2 puntos de calibracion diarios 6ppm y aire ambiental (autocalibracion) HECHO
 
-#crear un script separado para obtener map_injections (label, start, stop) para cada rawfile #HECHO#, hacerlo editable, luego importar desde este script los datos con los label corregidos/eliminados/anadidos
-
-
-#crear loop para cada rawfile, comprobando primero si los datos estan extraidos ya (no ejecutar para todos los rawfile, sino solo para los que no tengan ya los datos extraidos, en base a un metadata_file ) 
+#crear un script separado para obtener map_injections (label, start, stop) para cada rawfile #HECHO#, hacerlo editable, luego importar desde este script los datos con los label corregidos/eliminados/anadidos HECHO
 
 
-#Description: this script takes raw-files from Li-COR 7820 containing discrete injections, corrected injection_sequences (with label, start and stop) and calculates N2O concentration (in ppm) along with signal-to-noise ratio for each injection. It also generates inspection plots (baseline correction & integration) and stores the results in csv format. 
+#crear loop para cada rawfile, comprobando primero si los datos estan extraidos ya (no ejecutar para todos los rawfile, sino solo para los que no tengan ya los datos extraidos, en base a la presencia de integrated peaks csv files) 
 
-#This script uses the calibration curve obtained in Licor_cal_n2o.R : i.e. #ppm = ((1/203.05)*(peaksum-5.8236))/ml
+
+#Description: this script takes raw-files from Li-COR 7820 containing discrete injections, corrected injection_sequences (with label, start and stop) and calculates integrated peaks along with signal-to-noise ratio for each injection. It also generates inspection plots (baseline correction & integration) and stores the results in csv format. It also extracts the baseline data for ambient lab air and zero-Air from cylinder.
 
 
 # ---- Directories ----
@@ -37,7 +35,7 @@ folder_mapinjections<- paste0(dropbox_root,"/Licor_N2O/Map_injections") #Contain
 
 folder_plots<-  paste0(dropbox_root,"/Licor_N2O/Integration plots") #One pdf per dayofinjections (auto-name from rawfile name), plots of each injection sequence (baseline correction & integration)
 
-folder_results<- paste0(dropbox_root,"/Licor_N2O/Results_ppm")#One csv per dayofinjections will be created (auto-name from rawfile name), with individual peak parameters (Original file, exetainer_id, label, peak_id, unixtime of max, Area, SNR, ppmN2O)
+folder_results<- paste0(dropbox_root,"/Licor_N2O/Results_ppm")#One csv per dayofinjections will be created (auto-name from rawfile name), with individual peak parameters (label, peak_id, peaksum, peakmax, unixtime_ofmax, raw_peaksum, dayofanalysis, SNR)
 
 
 
@@ -66,13 +64,13 @@ rawfiles<- list.files(path = folder_raw, pattern = ".data")
 mapscorrect<- list.files(path = folder_mapinjections, pattern = "^corrected_map_injection_")
 
 #Get extracted data
-ppmfiles<- list.files(path = folder_results, pattern = "^ppm_of_injections_")
+integratedfiles<- list.files(path = folder_results, pattern = "^integrated_injections_")
 
 
-#Select code of rawfiles with corresponding mapscorrect but without ppmfiles
+#Select code of rawfiles with corresponding mapscorrect but without integratedfiles
 rawtointegrate<- gsub(".data","",rawfiles[
   gsub(".data","",rawfiles)%in%gsub(".csv","",gsub("corrected_map_injection_","",mapscorrect))& #Match raw with maps
-    !gsub(".data","",rawfiles)%in%gsub(".csv","",gsub("ppm_of_injections_","",ppmfiles)) #Not match raw with ppmfiles
+    !gsub(".data","",rawfiles)%in%gsub(".csv","",gsub("integrated_injections_","",integratedfiles)) #Not match raw with integratedfiles
 ])
 
 
@@ -274,7 +272,7 @@ for (i in rawtointegrate){
   write.csv(B,file = paste0(folder_results,"/", "baselines_", i, ".csv"),row.names = F)
   
   #Save concentrations of injections for rawfile i   
-  write.csv(A,file = paste0(folder_results,"/", "ppm_of_injections_", i, ".csv"),row.names = F)
+  write.csv(A,file = paste0(folder_results,"/", "integrated_injections_", i, ".csv"),row.names = F)
   
   #Save plots of integrations: use i for naming convention of pdf
   
