@@ -275,7 +275,7 @@ for (i in rawtointegrate){
   write.csv(A,file = paste0(folder_results,"/", "integrated_injections_", i, ".csv"),row.names = F)
   
   #Save plots of integrations: use i for naming convention of pdf
-  
+  print(paste0("Plotting integrations of day: ", i))
   #plot every injection sequence and their integrals: 
   pdf(file = paste0(folder_plots,"/Integrations_",i,".pdf"))  # Open PDF device
   
