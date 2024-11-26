@@ -59,9 +59,11 @@ for(i in ppmsamplefiles){
 
 
 sampledata$dayofanalysis<- as.POSIXct(sampledata$dayofanalysis,format = "%Y-%m-%d")
-summary(sampledata)
 
-#CV of samples:
+
+
+
+#CV of R4Cs samples from exetainers with 3 and 4 injections :
 sampledata %>% 
   filter(grepl("^S", sample)) %>% 
 ggplot(aes(x=as.character(nobs), y=n2o_ppm_cv*100, group = as.character(nobs)))+
@@ -69,16 +71,141 @@ ggplot(aes(x=as.character(nobs), y=n2o_ppm_cv*100, group = as.character(nobs)))+
   geom_jitter(width = 0.1)+
   scale_x_discrete(name="Injections per sample")+
   scale_y_continuous(name = "CV %")+
-  ggtitle("Precission of Sample Injections")
+  ggtitle("Precission of R4Cs Samples (from exetainers)")+
+  theme_bw()
+
+#Summary precission CV
+sampledata %>% 
+  filter(grepl("^S", sample)) %>% 
+  group_by(nobs) %>% 
+  summarise(n=n(),
+            avg_cv=mean(n2o_ppm_cv*100),
+            sd_cv=sd(n2o_ppm_cv*100),
+            CI_lower = mean(n2o_ppm_cv*100) - qnorm(0.975) * (sd(n2o_ppm_cv*100) / sqrt(n())),
+            CI_upper = mean(n2o_ppm_cv*100) + qnorm(0.975) * (sd(n2o_ppm_cv*100) / sqrt(n())))
+
+#Summary precission SD ppm
+sampledata %>% 
+  filter(grepl("^S", sample)) %>% 
+  group_by(nobs) %>% 
+  summarise(n=n(),
+            avg_sd=mean(n2o_ppm_sd*1000),
+            sd_sd=sd(n2o_ppm_sd*1000),
+            CI_lower = mean(n2o_ppm_sd*1000) - qnorm(0.975) * (sd(n2o_ppm_sd*1000) / sqrt(n())),
+            CI_upper = mean(n2o_ppm_sd*1000) + qnorm(0.975) * (sd(n2o_ppm_sd*1000) / sqrt(n())))
 
 
-injdata %>%  
+
+#Accuracy (%retrieval)
+
+#Sampling ambient lab air from exetainers
+sampledata %>% 
   filter(dayofanalysis==as.POSIXct("2024-11-25",format = "%Y-%m-%d")) %>% 
-  filter(grepl("air",sample)) %>% 
+  filter(!grepl("bot|cal|Dif",sample)) %>% 
   separate(sample, into = c("operator", "origin","replicate"), remove = F) %>% 
-  ggplot(aes(x=operator,y=n2o_ppm))+
+  mutate(retrieval=case_when(origin=="6ppm"~(n2o_ppm_avg/6)*100,
+                             origin=="air"~(n2o_ppm_avg/0.343)*100)) %>%
+  ggplot(aes(x=operator,y=retrieval, col=operator))+
   geom_boxplot()+
-  geom_jitter(width = 0.1)
+  geom_jitter(width = 0.1)+
+  geom_hline(yintercept = 100)+
+  facet_wrap(.~origin)+
+  theme_bw()
+
+#Sampling ambient lab air from exetainers
+sampledata %>% 
+  filter(dayofanalysis==as.POSIXct("2024-11-25",format = "%Y-%m-%d")) %>% 
+  filter(!grepl("bot|cal|Dif",sample)) %>% 
+  separate(sample, into = c("operator", "origin","replicate"), remove = F) %>% 
+  mutate(retrieval=case_when(origin=="6ppm"~(n2o_ppm_avg/6)*100,
+                             origin=="air"~(n2o_ppm_avg/0.343)*100)) %>%
+  ggplot(aes(x=origin,y=retrieval))+
+  geom_boxplot()+
+  geom_jitter(width = 0.1)+
+  # geom_hline(yintercept = 100)+
+  facet_wrap(.~origin, scales = "free")+
+  theme_bw()
+
+
+
+# Summary %retrieval
+sampledata %>% 
+  filter(dayofanalysis==as.POSIXct("2024-11-25",format = "%Y-%m-%d")) %>% 
+  filter(!grepl("bot|cal|Dif",sample)) %>% 
+  separate(sample, into = c("operator", "origin","replicate"), remove = F) %>% 
+  mutate(retrieval=case_when(origin=="6ppm"~(n2o_ppm_avg/6)*100,
+                             origin=="air"~(n2o_ppm_avg/0.343)*100)) %>% #Ave concentration baseline-1 (when exetainers were filled)
+  group_by(operator, origin) %>%
+  summarise(n=n(),
+            avg_retrieval=mean(retrieval),
+            sd_retrieval=sd(retrieval),
+            CI_lower = mean(retrieval) - qnorm(0.975) * (sd(retrieval) / sqrt(n())),
+            CI_upper = mean(retrieval) + qnorm(0.975) * (sd(retrieval) / sqrt(n())))
+
+
+
+#Sampling ambient lab air from exetainers
+injdata %>% 
+  filter(dayofanalysis==as.POSIXct("2024-11-25",format = "%Y-%m-%d")) %>% 
+  filter(!grepl("bot|cal|Dif",sample)) %>% 
+  separate(sample, into = c("operator", "origin","replicate"), remove = F) %>% 
+  mutate(retrieval=case_when(origin=="6ppm"~(n2o_ppm/6)*100,
+                             origin=="air"~(n2o_ppm/0.343)*100)) %>%
+  # filter(origin=="6ppm") %>% 
+  ggplot(aes(x=operator,y=retrieval,col=operator))+
+  geom_boxplot()+
+  geom_jitter(width = 0.1)+
+  geom_hline(yintercept = 100)+
+  facet_grid(.~origin)+
+  theme_bw()+
+  scale_y_continuous(name="% Recovery of method ")
+
+
+injdata %>% 
+  filter(dayofanalysis==as.POSIXct("2024-11-25",format = "%Y-%m-%d")) %>% 
+  filter(!grepl("bot|cal|Dif",sample)) %>% 
+  separate(sample, into = c("operator", "origin","replicate"), remove = F) %>% 
+  mutate(retrieval=case_when(origin=="6ppm"~(n2o_ppm/6)*100,
+                             origin=="air"~(n2o_ppm/0.343)*100)) %>%
+  group_by(operator, origin) %>%
+  summarise(n=n(),
+            avg_retrieval=mean(retrieval),
+            sd_retrieval=sd(retrieval),
+            CI_lower = mean(retrieval) - qnorm(0.975) * (sd(retrieval) / sqrt(n())),
+            CI_upper = mean(retrieval) + qnorm(0.975) * (sd(retrieval) / sqrt(n())))
+
+
+#Difference in behaviour between operators
+injdata %>% 
+  filter(dayofanalysis==as.POSIXct("2024-11-25",format = "%Y-%m-%d")) %>% 
+  filter(!grepl("bot|cal|Dif",sample)) %>% 
+  separate(sample, into = c("operator", "origin","replicate"), remove = F) %>% 
+  arrange(unixtime_ofmax) %>% 
+  group_by(operator, sample) %>% 
+  summarise(lagpeak=diff(unixtime_ofmax)) %>% 
+  ungroup() %>% 
+  group_by(operator) %>% 
+  summarise(mean_lag=mean(lagpeak), sd(lagpeak))
+
+
+
+
+
+
+
+#Example concentrations Samples R4Cs
+injdata %>% 
+  filter(grepl("^S|air", sample)) %>% 
+  ggplot(aes(x=sample, y=n2o_ppm))+
+  geom_point()+
+  scale_x_discrete(name="Field samples + Lab air")+
+  scale_y_continuous(name = "N2O (ppm)")+
+  theme_bw()+
+  theme(
+    axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)
+  )
+
+
 
 
 
@@ -86,9 +213,14 @@ injdata %>%
 injdata %>% 
   filter(dayofanalysis==as.POSIXct("2024-11-25",format = "%Y-%m-%d")) %>% 
   filter(grepl("Dif",sample)) %>% 
-  ggplot(aes(x=sample,y=n2o_ppm/6*100))+
+  separate(sample, into=c("diftest", "conc", "difusion_time"), remove = F) %>% 
+  mutate(difusion_time=parse_number(difusion_time)) %>% 
+  ggplot(aes(x=difusion_time,y=n2o_ppm/6*100, col=as.factor(difusion_time)))+
   geom_boxplot()+
-  geom_jitter(width = 0.1)
+  geom_jitter(width = 0.1)+
+  labs(col="Diffusion seconds",x="Diffusion seconds",y="Recovery")+
+  ggtitle("Losses by difusion (6ppm from bottle)")+
+  theme_bw()
 
 
 
