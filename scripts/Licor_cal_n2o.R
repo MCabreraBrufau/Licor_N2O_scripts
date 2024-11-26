@@ -237,7 +237,8 @@ ggplot(subset(cal_peaks, vol<=1),aes(x=vol, y=peaksum))+
   geom_smooth(method = "lm", se=T,col="black",formula = y~x)+
   geom_point(aes(shape=conc, col= "0.1-1ml"))+
   geom_point(data=subset(cal_peaks, vol>1), aes(x=vol, y=peaksum, col=">1ml"))+
-  facet_wrap(.~conc, scales="free")
+  facet_wrap(.~conc, scales="free")+
+  theme_bw()
   
 
 #Linear range for injection volumes of 01-1ml (higher volumes cause underestimation of peaks due to diffussion, probably too wide peaks for integration window, baseline takes too long to recover).

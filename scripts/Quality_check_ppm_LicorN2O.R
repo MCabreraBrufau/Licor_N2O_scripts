@@ -27,6 +27,7 @@ folder_results<- paste0(dropbox_root,"/Licor_N2O/Results_ppm")#Contains baseline
 
 baselinefiles<- list.files(path = folder_results, pattern = "^baselines_")
 ppmpeakfiles<- list.files(path = folder_results, pattern = "^ppm_peaks_")
+ppmsamplefiles<- list.files(path = folder_results, pattern = "^ppm_samples_")
 
 baselinedata<- data.frame()
 for(i in baselinefiles){
@@ -46,6 +47,53 @@ for(i in ppmpeakfiles){
   
   injdata<- rbind(injdata, a)
 }
+
+sampledata<- data.frame()
+for(i in ppmsamplefiles){
+  
+  a<- read.csv(file = paste0(folder_results,"/", i))
+  # filter(grepl("^aire|^6ppm", sample))
+  
+  sampledata<- rbind(sampledata, a)
+}
+
+
+sampledata$dayofanalysis<- as.POSIXct(sampledata$dayofanalysis,format = "%Y-%m-%d")
+summary(sampledata)
+
+#CV of samples:
+sampledata %>% 
+  filter(grepl("^S", sample)) %>% 
+ggplot(aes(x=as.character(nobs), y=n2o_ppm_cv*100, group = as.character(nobs)))+
+  geom_boxplot()+
+  geom_jitter(width = 0.1)+
+  scale_x_discrete(name="Injections per sample")+
+  scale_y_continuous(name = "CV %")+
+  ggtitle("Precission of Sample Injections")
+
+
+injdata %>%  
+  filter(dayofanalysis==as.POSIXct("2024-11-25",format = "%Y-%m-%d")) %>% 
+  filter(grepl("air",sample)) %>% 
+  separate(sample, into = c("operator", "origin","replicate"), remove = F) %>% 
+  ggplot(aes(x=operator,y=n2o_ppm))+
+  geom_boxplot()+
+  geom_jitter(width = 0.1)
+
+
+
+#Diffusion test:
+injdata %>% 
+  filter(dayofanalysis==as.POSIXct("2024-11-25",format = "%Y-%m-%d")) %>% 
+  filter(grepl("Dif",sample)) %>% 
+  ggplot(aes(x=sample,y=n2o_ppm/6*100))+
+  geom_boxplot()+
+  geom_jitter(width = 0.1)
+
+
+
+ggplot(sampledata, aes(x=n2o_ppm_avg, y=n2o_ppm_cv*100, group = nobs))+
+  geom_jitter(width = 0.1)
 
 
 
