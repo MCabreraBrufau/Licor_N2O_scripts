@@ -175,6 +175,7 @@ injdata %>%
             CI_upper = mean(retrieval) + qnorm(0.975) * (sd(retrieval) / sqrt(n())))
 
 
+
 #Difference in behaviour between operators
 injdata %>% 
   filter(dayofanalysis==as.POSIXct("2024-11-25",format = "%Y-%m-%d")) %>% 
@@ -182,13 +183,20 @@ injdata %>%
   separate(sample, into = c("operator", "origin","replicate"), remove = F) %>% 
   arrange(unixtime_ofmax) %>% 
   group_by(operator, sample) %>% 
-  summarise(lagpeak=diff(unixtime_ofmax)) %>% 
+  mutate(
+    lagpeak = unixtime_ofmax - lag(unixtime_ofmax),  # Calculate lag with previous row
+    first_instance = peak_id,  # Value of the first instance
+    second_instance = lag(peak_id)     # Value of the second instance
+  ) %>%
+  filter(!is.na(lagpeak)) %>%  # Remove NA rows where lag cannot be calculated
   ungroup() %>% 
-  group_by(operator) %>% 
-  summarise(mean_lag=mean(lagpeak), sd(lagpeak))
-
-
-
+  ggplot(aes(x=operator, y=lagpeak))+
+  geom_boxplot()+
+  geom_jitter()+
+  scale_y_continuous(breaks = seq(20,120,by=10))
+  
+  
+  
 
 
 

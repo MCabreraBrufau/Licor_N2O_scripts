@@ -53,10 +53,12 @@ for (i in raw_files_withoutmap){
   
   a<- read_Licor_n2o(paste0(folder_raw,"/",i))%>% 
     group_by(label) %>% 
+    
     summarise(date=first(date),Tstart=first(UTCtime), Tend =last(UTCtime)) %>% 
     arrange(Tstart) %>% 
     mutate(rawfile=i) %>% 
-    select(date, Tstart, Tend, label, rawfile)
+    select(date, Tstart, Tend, label, rawfile) %>% 
+    mutate(Tstart_correct=NA,	Tend_correct=NA,	label_correct=NA)#Add empty columns to manually correct the data
   
   write.csv(a,file = paste0(folder_mapinjections,"/raw_map_injection_", gsub(".data","",i), ".csv"),row.names = F)
   

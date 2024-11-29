@@ -186,15 +186,17 @@ for (i in rawtointegrate){
         ungroup()
       
       ##____Peak-window selection#####
-      #Consider peakwindow as max height + 4 leading and 7 trailing points. (i.e. peak width == 9points), 
+      #Consider peakwindow as max height + 4 leading and 7 trailing points. (i.e. peak width == 12points), 
       
       inj_data <- inj_data %>%
         mutate(peak_id = map_chr(row_number(), function(idx) {
-          seq_start <- max(1, idx - 7)
-          seq_end <- min(n(), idx + 4)
+          #For each row, search for a non-na peak_id, look up to 7 seconds before and 4 seconds after the row i. Then assing the value of peak_id to the row i.
+          #This results in the spread of the value of "peak_id" of the local maximum to secondsbefore_max seconds before and to secondsafter_max seconds after each identified maximum. 
+          secondsbefore_max<- 4
+          secondsafter_max<- 7
           
-          # Check for peak_id in the surrounding window
-          surrounding_codes <- peak_id[seq(seq_start, seq_end)]
+          # Check for peak_id in the window:
+          surrounding_codes <- peak_id[seq(max(1, idx - secondsafter_max), min(n(), idx + secondsbefore_max))]  
           
           # Return the peak_id if it's available, otherwise return NA
           if (any(!is.na(surrounding_codes))) {
@@ -285,9 +287,6 @@ for (i in rawtointegrate){
   }
   
   dev.off()  # Close the PDF device
-  
-  
-  
   
 }
 
